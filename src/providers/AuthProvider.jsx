@@ -8,6 +8,12 @@ const AuthContext = createContext(null)
 const SESSION_KEY = 'app.session.v1'
 
 function readInitialSession() {
+  // In Firebase mode, rely on onAuthStateChanged as the single source of truth
+  // to avoid stale role/session restoration across account switches.
+  if (isFirebaseEnabled()) {
+    return null
+  }
+
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     return raw ? JSON.parse(raw) : null
@@ -93,12 +99,15 @@ export function AuthProvider({ children }) {
         await signInWithPopup(auth, googleProvider)
       },
       async signOut() {
+        // Clear local session immediately to prevent stale-role flashes.
+        setSession(null)
+        localStorage.removeItem(SESSION_KEY)
+        setSyncError('')
+
         if (isFirebaseEnabled()) {
           await firebaseSignOut(auth)
           return
         }
-        setSession(null)
-        localStorage.removeItem(SESSION_KEY)
       },
     }),
     [loading, session, syncError],
