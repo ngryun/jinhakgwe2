@@ -1,5 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth'
+import {
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut as firebaseSignOut,
+} from 'firebase/auth'
 import { appConfig } from '../config/appConfig'
 import { auth, googleProvider, isFirebaseEnabled } from '../lib/firebase'
 import { getUserProfile, upsertUserProfile } from '../services/userService'
@@ -75,6 +81,21 @@ export function AuthProvider({ children }) {
     return () => unsubscribe()
   }, [])
 
+  useEffect(() => {
+    if (!isFirebaseEnabled()) return
+
+    getRedirectResult(auth).catch((error) => {
+      const message = error instanceof Error ? error.message : 'Google 로그인 처리에 실패했습니다.'
+      setSyncError(message)
+    })
+  }, [])
+
+  const isMobileBrowser = () => {
+    if (typeof navigator === 'undefined') return false
+    const ua = navigator.userAgent || ''
+    return /iPhone|iPad|iPod|Android/i.test(ua)
+  }
+
   const value = useMemo(
     () => ({
       user: session,
@@ -96,7 +117,22 @@ export function AuthProvider({ children }) {
         if (!isFirebaseEnabled() || !googleProvider) {
           throw new Error('Firebase auth is not enabled')
         }
-        await signInWithPopup(auth, googleProvider)
+
+        if (isMobileBrowser()) {
+          await signInWithRedirect(auth, googleProvider)
+          return
+        }
+
+        try {
+          await signInWithPopup(auth, googleProvider)
+        } catch (error) {
+          // Popup restrictions are common on mobile/in-app browsers.
+          if (isMobileBrowser()) {
+            await signInWithRedirect(auth, googleProvider)
+            return
+          }
+          throw error
+        }
       },
       async signOut() {
         // Clear local session immediately to prevent stale-role flashes.
