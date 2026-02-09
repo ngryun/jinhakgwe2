@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function userDocPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userExists(uid) {
+      return exists(userDocPath(uid));
+    }
+
+    function isAdmin() {
+      return isAuthenticated()
+        && userExists(request.auth.uid)
+        && get(userDocPath(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid);
+      allow update: if isAdmin()
+        || (
+          isOwner(uid)
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'name',
+            'school',
+            'subject',
+            'updatedAt'
+          ])
+        );
+      allow delete: if false;
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+
+      allow update: if isAdmin()
+        || (
+          isAuthenticated()
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['applied', 'updatedAt'])
+          && request.resource.data.applied >= 0
+          && (
+            request.resource.data.applied == resource.data.applied + 1
+            || request.resource.data.applied == resource.data.applied - 1
+          )
+        );
+    }
+
+    match /applications/{applicationId} {
+      // Transaction pre-checks read this doc before create, including non-existing docs.
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated()
+        && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.status == 'applied';
+
+      allow delete: if isAuthenticated()
+        && resource.data.teacherUid == request.auth.uid;
+
+      allow update: if false;
+    }
+  }
+}
