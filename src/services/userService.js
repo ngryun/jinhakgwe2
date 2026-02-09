@@ -20,15 +20,23 @@ export async function upsertUserProfile(profile) {
   }
 
   const ref = doc(db, COLLECTION, payload.uid)
-  await setDoc(
-    ref,
-    {
+  const snapshot = await getDoc(ref)
+
+  if (!snapshot.exists()) {
+    await setDoc(ref, {
       ...payload,
-      updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
-    },
-    { merge: true },
-  )
+      updatedAt: serverTimestamp(),
+    })
+    return payload
+  }
+
+  // Owner updates are intentionally restricted in rules.
+  // Keep this patch minimal to avoid role/email/uid permission conflicts.
+  await updateDoc(ref, {
+    name: payload.name,
+    updatedAt: serverTimestamp(),
+  })
 
   return payload
 }
