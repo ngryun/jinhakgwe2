@@ -24,6 +24,7 @@ function normalizeSchedule(id, data) {
     date: data.date || '',
     time: data.time || '',
     needed: Number(data.needed || 0),
+    waitlist: Number(data.waitlist || 0),
     applied: Number(data.applied || 0),
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
@@ -60,6 +61,7 @@ export async function createSchedule(payload) {
     date: payload.date,
     time: payload.time,
     needed: Number(payload.needed || 0),
+    waitlist: Number(payload.waitlist || 0),
     applied: 0,
   }
 
@@ -97,6 +99,7 @@ export async function updateSchedule(scheduleId, payload) {
         ...item,
         ...payload,
         needed: payload.needed != null ? Number(payload.needed) : item.needed,
+        waitlist: payload.waitlist != null ? Number(payload.waitlist) : item.waitlist,
         updatedAt: new Date().toISOString(),
       }
     })
@@ -107,6 +110,7 @@ export async function updateSchedule(scheduleId, payload) {
   await updateDoc(ref, {
     ...payload,
     ...(payload.needed != null ? { needed: Number(payload.needed) } : {}),
+    ...(payload.waitlist != null ? { waitlist: Number(payload.waitlist) } : {}),
     updatedAt: serverTimestamp(),
   })
 

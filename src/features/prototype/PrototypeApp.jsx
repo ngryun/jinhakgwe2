@@ -84,7 +84,8 @@ const roleLabel = (role) => (role === "admin" ? "관리자" : "상담교사");
 // ─── Reusable ────────────────────────────────────────────────────────────────
 function Badge({ type }) {
   const map = {
-    done: { label: "모집완료", bg: t.greenSoft, color: t.green, border: `1px solid ${t.green}20` },
+    done: { label: "마감", bg: t.greenSoft, color: t.green, border: `1px solid ${t.green}20` },
+    reserve: { label: "예비접수", bg: t.accentSoft, color: t.accent, border: `1px solid ${t.accent}20` },
     progress: { label: "모집중", bg: t.amberSoft, color: t.amber, border: `1px solid ${t.amber}20` },
     waiting: { label: "대기", bg: t.bg, color: t.text3, border: `1px solid ${t.border}` },
   };
@@ -92,8 +93,21 @@ function Badge({ type }) {
   return <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500, background: s.bg, color: s.color, border: s.border, letterSpacing: "-0.01em" }}>{s.label}</span>;
 }
 
-function getStatus(applied, needed) {
-  if (applied >= needed) return "done";
+function getCapacity(needed, waitlist = 0) {
+  return Number(needed || 0) + Number(waitlist || 0);
+}
+
+function formatCapacity(needed, waitlist = 0) {
+  const main = Number(needed || 0);
+  const reserve = Number(waitlist || 0);
+  return reserve > 0 ? `${main}(+${reserve})` : `${main}`;
+}
+
+function getStatus(applied, needed, waitlist = 0) {
+  const main = Number(needed || 0);
+  const total = getCapacity(needed, waitlist);
+  if (Number(applied || 0) >= total) return "done";
+  if (Number(applied || 0) >= main) return "reserve";
   if (applied > 0) return "progress";
   return "waiting";
 }
@@ -317,11 +331,6 @@ function Sidebar({ role, user, tab, setTab, onLogout, isMobile, isOpen, onClose 
 
 // ─── Top Bar ─────────────────────────────────────────────────────────────────
 function TopBar({ role, tab, isMobile, onToggleSidebar }) {
-  const tabLabels = role === "admin"
-    ? { dash: "대시보드", sched: "상담일정", teach: "교사 관리", profile: "내 정보" }
-    : { list: "상담 일정", my: "내 지원현황", profile: "내 정보" };
-  const currentTabLabel = tabLabels[tab] || "상담교사 배정 시스템";
-
   return (
     <div style={{
       height: isMobile ? 68 : 84, padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -345,10 +354,6 @@ function TopBar({ role, tab, isMobile, onToggleSidebar }) {
           alt="강원특별자치도 진학지원센터 로고"
           style={{ width: 200, height: 60, objectFit: "contain", objectPosition: "left center" }}
         />
-        <div style={{ lineHeight: 1.1 }}>
-          <div style={{ fontSize: 13, fontWeight: 650, color: t.text }}>강원특별자치도 진학지원센터</div>
-          <div style={{ fontSize: 11, color: t.text3, marginTop: 3 }}>{currentTabLabel}</div>
-        </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button style={{
@@ -375,14 +380,16 @@ function TopBar({ role, tab, isMobile, onToggleSidebar }) {
 function Dashboard({ schedules }) {
   const total = schedules.length;
   const needed = schedules.reduce((a, s) => a + s.needed, 0);
+  const waitlist = schedules.reduce((a, s) => a + Number(s.waitlist || 0), 0);
   const applied = schedules.reduce((a, s) => a + s.applied, 0);
-  const done = schedules.filter(s => s.applied >= s.needed).length;
+  const done = schedules.filter(s => s.applied >= getCapacity(s.needed, s.waitlist)).length;
 
   const stats = [
     { label: "전체 일정", value: total, sub: "건" },
-    { label: "필요 교사", value: needed, sub: "명" },
+    { label: "모집 인원", value: needed, sub: "명" },
+    { label: "예비 인원", value: waitlist, sub: "명" },
     { label: "지원 완료", value: applied, sub: "명" },
-    { label: "모집 완료", value: done, sub: "건" },
+    { label: "마감 일정", value: done, sub: "건" },
   ];
 
   return (
@@ -426,8 +433,8 @@ function Dashboard({ schedules }) {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 13, color: t.text3 }}>{s.applied}/{s.needed}</span>
-              <Badge type={getStatus(s.applied, s.needed)} />
+              <span style={{ fontSize: 13, color: t.text3 }}>{s.applied}/{formatCapacity(s.needed, s.waitlist)}</span>
+              <Badge type={getStatus(s.applied, s.needed, s.waitlist)} />
             </div>
           </div>
         ))}
@@ -440,7 +447,7 @@ function Dashboard({ schedules }) {
 function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedule }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ school: "", region: "", date: "", time: "", needed: 2 });
+  const [form, setForm] = useState({ school: "", region: "", date: "", time: "", needed: 2, waitlist: 0 });
 
   const handleSubmit = async () => {
     if (!form.school || !form.date || !form.time) return;
@@ -450,7 +457,8 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
         region: form.region,
         date: form.date,
         time: form.time,
-        needed: parseInt(form.needed),
+        needed: Number.parseInt(form.needed, 10) || 0,
+        waitlist: Number.parseInt(form.waitlist, 10) || 0,
       });
     } else {
       await onAddSchedule({
@@ -458,10 +466,11 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
         region: form.region,
         date: form.date,
         time: form.time,
-        needed: parseInt(form.needed),
+        needed: Number.parseInt(form.needed, 10) || 0,
+        waitlist: Number.parseInt(form.waitlist, 10) || 0,
       });
     }
-    setForm({ school: "", region: "", date: "", time: "", needed: 2 });
+    setForm({ school: "", region: "", date: "", time: "", needed: 2, waitlist: 0 });
     setEditingId(null);
     setShowForm(false);
   };
@@ -474,6 +483,7 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
       date: schedule.date || "",
       time: schedule.time || "",
       needed: schedule.needed || 1,
+      waitlist: Number(schedule.waitlist || 0),
     });
     setShowForm(true);
   };
@@ -491,7 +501,7 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
         <button onClick={() => {
           if (showForm) {
             setEditingId(null);
-            setForm({ school: "", region: "", date: "", time: "", needed: 2 });
+            setForm({ school: "", region: "", date: "", time: "", needed: 2, waitlist: 0 });
           }
           setShowForm(!showForm);
         }} style={{
@@ -521,11 +531,12 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
               ["지역", "region", "서울 강남구", "text"],
               ["날짜", "date", "", "date"],
               ["시간", "time", "09:00 – 12:00", "text"],
-              ["필요 교사", "needed", "", "number"],
+              ["모집 인원", "needed", "", "number"],
+              ["예비 인원", "waitlist", "", "number"],
             ].map(([label, key, ph, type]) => (
-              <div key={key} style={key === "needed" ? {} : {}}>
+              <div key={key}>
                 <label style={{ display: "block", fontSize: 12, color: t.text3, marginBottom: 4, fontWeight: 450 }}>{label}</label>
-                <input type={type} min={type === "number" ? 1 : undefined} value={form[key]} onChange={e => setForm({...form, [key]: e.target.value})}
+                <input type={type} min={type === "number" ? (key === "waitlist" ? 0 : 1) : undefined} value={form[key]} onChange={e => setForm({...form, [key]: e.target.value})}
                   placeholder={ph} style={inp}
                   onFocus={e => e.target.style.borderColor = t.accent}
                   onBlur={e => e.target.style.borderColor = t.border}
@@ -568,16 +579,26 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
                 <td style={{ padding: "11px 16px", fontSize: 13, color: t.text2 }}>{s.time}</td>
                 <td style={{ padding: "11px 16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 60, height: 4, borderRadius: 2, background: t.bg, overflow: "hidden" }}>
-                      <div style={{
-                        width: `${Math.min(100, (s.applied / s.needed) * 100)}%`, height: "100%", borderRadius: 2,
-                        background: s.applied >= s.needed ? t.green : t.accent, transition: "width 0.3s",
-                      }} />
-                    </div>
-                    <span style={{ fontSize: 12, color: t.text3 }}>{s.applied}/{s.needed}</span>
+                    {(() => {
+                      const status = getStatus(s.applied, s.needed, s.waitlist);
+                      const total = Math.max(1, getCapacity(s.needed, s.waitlist));
+                      const ratio = Math.min(100, (Number(s.applied || 0) / total) * 100);
+                      const barColor = status === "done" ? t.green : status === "reserve" ? t.amber : t.accent;
+                      return (
+                        <>
+                          <div style={{ width: 60, height: 4, borderRadius: 2, background: t.bg, overflow: "hidden" }}>
+                            <div style={{
+                              width: `${ratio}%`, height: "100%", borderRadius: 2,
+                              background: barColor, transition: "width 0.3s",
+                            }} />
+                          </div>
+                          <span style={{ fontSize: 12, color: t.text3 }}>{s.applied}/{formatCapacity(s.needed, s.waitlist)}</span>
+                        </>
+                      );
+                    })()}
                   </div>
                 </td>
-                <td style={{ padding: "11px 16px" }}><Badge type={getStatus(s.applied, s.needed)} /></td>
+                <td style={{ padding: "11px 16px" }}><Badge type={getStatus(s.applied, s.needed, s.waitlist)} /></td>
                 <td style={{ padding: "11px 16px", textAlign: "right" }}>
                   <button onClick={() => handleEdit(s)} style={{
                     padding: "4px 6px", borderRadius: 6, background: "transparent",
@@ -702,9 +723,15 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
     }
   };
 
-  const available = schedules.filter(s => s.applied < s.needed);
-  const full = schedules.filter(s => s.applied >= s.needed);
-  const allSchedules = [...available, ...full];
+  const recruitable = schedules.filter((s) => Number(s.applied || 0) < Number(s.needed || 0));
+  const reserveOpen = schedules.filter((s) => {
+    const applied = Number(s.applied || 0);
+    const needed = Number(s.needed || 0);
+    const total = getCapacity(s.needed, s.waitlist);
+    return applied >= needed && applied < total;
+  });
+  const full = schedules.filter((s) => Number(s.applied || 0) >= getCapacity(s.needed, s.waitlist));
+  const allSchedules = [...recruitable, ...reserveOpen, ...full];
 
   const parseDate = (value) => {
     if (!value) return null;
@@ -745,24 +772,41 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
 
   const selectedItems = selectedDay ? (dayMap[selectedDay] || []) : [];
 
-  const Card = ({ s, disabled }) => {
+  const Card = ({ s }) => {
     const applied = myApps.find(a => a.id === s.id);
     const isProcessing = processingIds.includes(s.id);
+    const status = getStatus(s.applied, s.needed, s.waitlist);
+    const totalCapacity = Math.max(1, getCapacity(s.needed, s.waitlist));
+    const mainCapacity = Number(s.needed || 0);
+    const appliedCount = Number(s.applied || 0);
+    const isClosedForNew = status === "done" && !applied;
+    const remainMain = Math.max(0, mainCapacity - appliedCount);
+    const remainReserve = Math.max(0, totalCapacity - appliedCount);
+    const progressColor = status === "done" ? t.green : status === "reserve" ? t.amber : t.accent;
+    const actionLabel = isProcessing
+      ? "처리중..."
+      : applied
+        ? "지원 취소"
+        : status === "reserve"
+          ? "예비지원"
+          : status === "done"
+            ? "모집 마감"
+            : "지원하기";
     return (
       <div style={{
         padding: "18px 20px", borderRadius: t.radius, background: t.surface,
-        border: `1px solid ${disabled ? t.border : applied ? t.green + "30" : t.border}`,
-        opacity: disabled ? 0.5 : 1, transition: "all 0.15s",
+        border: `1px solid ${applied ? t.green + "30" : t.border}`,
+        opacity: isClosedForNew ? 0.72 : 1, transition: "all 0.15s",
       }}
-      onMouseOver={e => { if (!disabled) { e.currentTarget.style.borderColor = t.borderDark; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.04)"; }}}
-      onMouseOut={e => { e.currentTarget.style.borderColor = disabled ? t.border : applied ? t.green + "30" : t.border; e.currentTarget.style.boxShadow = "none"; }}
+      onMouseOver={e => { if (!isClosedForNew) { e.currentTarget.style.borderColor = t.borderDark; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.04)"; }}}
+      onMouseOut={e => { e.currentTarget.style.borderColor = applied ? t.green + "30" : t.border; e.currentTarget.style.boxShadow = "none"; }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 12 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 3 }}>{s.school}</div>
             <div style={{ fontSize: 12, color: t.text3, display: "flex", alignItems: "center", gap: 3 }}>{I.pin} {s.region}</div>
           </div>
-          <Badge type={getStatus(s.applied, s.needed)} />
+          <Badge type={status} />
         </div>
 
         <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 13, color: t.text2 }}>
@@ -770,27 +814,28 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>{I.clock} {s.time}</span>
         </div>
 
-        {!disabled && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 60, height: 4, borderRadius: 2, background: t.bg, overflow: "hidden" }}>
-                <div style={{ width: `${(s.applied / s.needed) * 100}%`, height: "100%", borderRadius: 2, background: t.accent, transition: "width 0.3s" }} />
-              </div>
-              <span style={{ fontSize: 12, color: t.text3 }}>{s.needed - s.applied}명 남음</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 60, height: 4, borderRadius: 2, background: t.bg, overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, (appliedCount / totalCapacity) * 100)}%`, height: "100%", borderRadius: 2, background: progressColor, transition: "width 0.3s" }} />
             </div>
-            <button onClick={() => (applied ? handleCancel(s) : handleApply(s))} disabled={isProcessing} style={{
-              padding: "7px 16px", borderRadius: 7, fontSize: 13, fontWeight: 500,
-              background: applied ? "#fff6f4" : t.accent,
-              color: applied ? "#9b3a2a" : "#fff",
-              border: applied ? "1px solid #f2c9c0" : "none",
-              cursor: isProcessing ? "default" : "pointer", transition: "all 0.15s",
-              opacity: isProcessing ? 0.7 : 1,
-            }}
-            onMouseOver={e => { if (!applied && !isProcessing) e.currentTarget.style.background = t.accentHover; }}
-            onMouseOut={e => { if (!applied && !isProcessing) e.currentTarget.style.background = t.accent; }}
-            >{isProcessing ? "처리중..." : applied ? "지원 취소" : "지원하기"}</button>
+            <span style={{ fontSize: 12, color: t.text3 }}>
+              {status === "done" ? "정원 마감" : status === "reserve" ? `예비 ${remainReserve}명 남음` : `${remainMain}명 남음`}
+            </span>
+            <span style={{ fontSize: 12, color: t.text3 }}>{appliedCount}/{formatCapacity(s.needed, s.waitlist)}</span>
           </div>
-        )}
+          <button onClick={() => (applied ? handleCancel(s) : handleApply(s))} disabled={isProcessing || isClosedForNew} style={{
+            padding: "7px 16px", borderRadius: 7, fontSize: 13, fontWeight: 500,
+            background: applied ? "#fff6f4" : isClosedForNew ? t.bg : t.accent,
+            color: applied ? "#9b3a2a" : isClosedForNew ? t.text3 : "#fff",
+            border: applied ? "1px solid #f2c9c0" : isClosedForNew ? `1px solid ${t.border}` : "none",
+            cursor: (isProcessing || isClosedForNew) ? "default" : "pointer", transition: "all 0.15s",
+            opacity: isProcessing ? 0.7 : 1,
+          }}
+          onMouseOver={e => { if (!applied && !isProcessing && !isClosedForNew) e.currentTarget.style.background = t.accentHover; }}
+          onMouseOut={e => { if (!applied && !isProcessing && !isClosedForNew) e.currentTarget.style.background = t.accent; }}
+          >{actionLabel}</button>
+        </div>
       </div>
     );
   };
@@ -826,13 +871,24 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
 
       {viewMode === "list" && (
         <>
-          {available.length > 0 && (
+          {recruitable.length > 0 && (
             <>
               <div style={{ fontSize: 12, fontWeight: 500, color: t.text3, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                지원 가능 · {available.length}건
+                모집중 · {recruitable.length}건
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isCompact ? "1fr" : "repeat(2, 1fr)", gap: 12, marginBottom: 28 }}>
-                {available.map(s => <Card key={s.id} s={s} />)}
+                {recruitable.map(s => <Card key={s.id} s={s} />)}
+              </div>
+            </>
+          )}
+
+          {reserveOpen.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 500, color: t.text3, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                예비 접수 · {reserveOpen.length}건
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isCompact ? "1fr" : "repeat(2, 1fr)", gap: 12, marginBottom: 28 }}>
+                {reserveOpen.map(s => <Card key={s.id} s={s} />)}
               </div>
             </>
           )}
@@ -840,10 +896,10 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
           {full.length > 0 && (
             <>
               <div style={{ fontSize: 12, fontWeight: 500, color: t.text3, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                모집 완료 · {full.length}건
+                마감 · {full.length}건
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isCompact ? "1fr" : "repeat(2, 1fr)", gap: 12 }}>
-                {full.map(s => <Card key={s.id} s={s} disabled />)}
+                {full.map(s => <Card key={s.id} s={s} />)}
               </div>
             </>
           )}
@@ -903,25 +959,33 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
                       <div style={{ fontSize: isCompact ? 11 : 12, fontWeight: 600, color: t.text2, marginBottom: 4 }}>{cell.day}</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                         {cell.items.slice(0, isCompact ? 1 : 2).map((s) => (
-                          <span
-                            key={s.id}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              fontSize: 10,
-                              color: s.applied >= s.needed ? t.green : t.accent,
-                              background: s.applied >= s.needed ? t.greenSoft : t.accentSoft,
-                              border: `1px solid ${s.applied >= s.needed ? t.green + "30" : t.accent + "30"}`,
-                              borderRadius: 999,
-                              padding: "2px 6px",
-                              maxWidth: "100%",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {s.school} · {s.applied}/{s.needed}
-                          </span>
+                          (() => {
+                            const status = getStatus(s.applied, s.needed, s.waitlist);
+                            const styleByStatus = status === "done"
+                              ? { color: t.green, background: t.greenSoft, border: `1px solid ${t.green}30` }
+                              : status === "reserve"
+                                ? { color: t.amber, background: t.amberSoft, border: `1px solid ${t.amber}30` }
+                                : { color: t.accent, background: t.accentSoft, border: `1px solid ${t.accent}30` };
+                            return (
+                              <span
+                                key={s.id}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  fontSize: 10,
+                                  borderRadius: 999,
+                                  padding: "2px 6px",
+                                  maxWidth: "100%",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  ...styleByStatus,
+                                }}
+                              >
+                                {s.school} · {s.applied}/{formatCapacity(s.needed, s.waitlist)}
+                              </span>
+                            );
+                          })()
                         ))}
                         {cell.items.length > (isCompact ? 1 : 2) && (
                           <span style={{ fontSize: 10, color: t.text3 }}>+{cell.items.length - (isCompact ? 1 : 2)}건</span>
@@ -944,7 +1008,7 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
             {selectedItems.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: isCompact ? "1fr" : "repeat(2, 1fr)", gap: 12 }}>
                 {selectedItems.map((s) => (
-                  <Card key={s.id} s={s} disabled={s.applied >= s.needed} />
+                  <Card key={s.id} s={s} />
                 ))}
               </div>
             )}

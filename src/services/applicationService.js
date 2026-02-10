@@ -57,6 +57,14 @@ export async function applyToSchedule({ scheduleId, teacherUid, teacherEmail, te
       throw new Error('이미 지원한 일정입니다.')
     }
 
+    const schedule = await getScheduleById(scheduleId)
+    if (schedule) {
+      const totalCapacity = Number(schedule.needed || 0) + Number(schedule.waitlist || 0)
+      if (Number(schedule.applied || 0) >= totalCapacity) {
+        throw new Error('이미 모집이 완료된 일정입니다.')
+      }
+    }
+
     localApplications = [
       ...localApplications,
       {
@@ -88,9 +96,11 @@ export async function applyToSchedule({ scheduleId, teacherUid, teacherEmail, te
 
     const schedule = scheduleSnap.data()
     const needed = Number(schedule.needed || 0)
+    const waitlist = Number(schedule.waitlist || 0)
     const applied = Number(schedule.applied || 0)
+    const totalCapacity = needed + waitlist
 
-    if (applied >= needed) {
+    if (applied >= totalCapacity) {
       throw new Error('이미 모집이 완료된 일정입니다.')
     }
 
