@@ -147,13 +147,23 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: t.bg, fontFamily: t.font }}>
+    <div style={{
+      minHeight: "100dvh",
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "center",
+      background: t.bg,
+      fontFamily: t.font,
+      padding: "20px 14px calc(20px + env(safe-area-inset-bottom))",
+      overflowY: "auto",
+    }}>
       <style>{css}</style>
       <div style={{
-        width: 380, padding: "40px 36px", borderRadius: 16,
+        width: "min(380px, 100%)", padding: "40px 36px", borderRadius: 16,
         background: t.surface, border: `1px solid ${t.border}`,
         boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.03)",
         animation: "fadeIn 0.4s ease-out",
+        margin: "auto 0",
       }}>
         <div style={{ marginBottom: 32 }}>
           <div style={{
@@ -271,9 +281,9 @@ function Sidebar({ role, user, tab, setTab, onLogout, isMobile, isOpen, onClose 
   const displayRole = roleLabel(role);
   const avatarText = (displayName || "?").trim().charAt(0);
   const baseSidebarStyle = {
-    width: 220, height: "100vh", background: t.surface,
+    width: 220, height: "100dvh", background: t.surface,
     borderRight: `1px solid ${t.border}`, display: "flex", flexDirection: "column",
-    fontFamily: t.font, flexShrink: 0,
+    fontFamily: t.font, flexShrink: 0, overflowY: "auto",
   };
 
   const mobileSidebarStyle = isMobile ? {
@@ -282,6 +292,7 @@ function Sidebar({ role, user, tab, setTab, onLogout, isMobile, isOpen, onClose 
     left: 0,
     zIndex: 50,
     width: 250,
+    maxHeight: "100dvh",
     transform: isOpen ? "translateX(0)" : "translateX(-100%)",
     transition: "transform 0.2s ease",
     boxShadow: "6px 0 24px rgba(0,0,0,0.12)",
@@ -303,7 +314,7 @@ function Sidebar({ role, user, tab, setTab, onLogout, isMobile, isOpen, onClose 
         </div>
       </div>
 
-      <nav style={{ padding: "12px 8px", flex: 1 }}>
+      <nav style={{ padding: "12px 8px", flex: 1, minHeight: 0, overflowY: "auto" }}>
         {nav.map(n => (
           <button key={n.id} onClick={() => { setTab(n.id); if (isMobile) onClose(); }} style={{
             display: "flex", alignItems: "center", gap: 8,
@@ -323,7 +334,7 @@ function Sidebar({ role, user, tab, setTab, onLogout, isMobile, isOpen, onClose 
         ))}
       </nav>
 
-      <div style={{ padding: "12px 12px 16px", borderTop: `1px solid ${t.border}` }}>
+      <div style={{ padding: "12px 12px calc(16px + env(safe-area-inset-bottom))", borderTop: `1px solid ${t.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <div style={{
             width: 30, height: 30, borderRadius: 8, background: t.bg,

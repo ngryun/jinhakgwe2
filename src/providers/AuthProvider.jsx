@@ -59,16 +59,31 @@ export function AuthProvider({ children }) {
           name: firebaseUser.displayName || firebaseUser.email || '사용자',
         }
 
-        // Write-first to guarantee initial user document creation.
+        // Set auth session first so temporary profile-sync issues do not bounce user back to login.
+        setSession(baseSession)
+        try {
+          localStorage.setItem(SESSION_KEY, JSON.stringify(baseSession))
+        } catch {
+          // Storage may be unavailable in some mobile/private browser contexts.
+        }
+
+        // Then hydrate profile data from Firestore.
         await upsertUserProfile(baseSession)
         const existingProfile = await getUserProfile(firebaseUser.uid)
         const nextSession = {
           ...baseSession,
           role: existingProfile?.role || baseSession.role,
+          school: existingProfile?.school || '',
+          subject: existingProfile?.subject || '',
+          phone: existingProfile?.phone || '',
         }
 
         setSession(nextSession)
-        localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession))
+        try {
+          localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession))
+        } catch {
+          // noop
+        }
         setSyncError('')
       } catch (error) {
         const message = error instanceof Error ? error.message : '프로필 동기화 실패'
