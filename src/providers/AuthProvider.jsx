@@ -96,6 +96,12 @@ export function AuthProvider({ children }) {
     return /iPhone|iPad|iPod|Android/i.test(ua)
   }
 
+  const isIOSBrowser = () => {
+    if (typeof navigator === 'undefined') return false
+    const ua = navigator.userAgent || ''
+    return /iPhone|iPad|iPod/i.test(ua)
+  }
+
   const value = useMemo(
     () => ({
       user: session,
@@ -118,19 +124,26 @@ export function AuthProvider({ children }) {
           throw new Error('Firebase auth is not enabled')
         }
 
-        if (isMobileBrowser()) {
-          await signInWithRedirect(auth, googleProvider)
-          return
-        }
-
         try {
           await signInWithPopup(auth, googleProvider)
         } catch (error) {
-          // Popup restrictions are common on mobile/in-app browsers.
-          if (isMobileBrowser()) {
+          const code = error?.code || ''
+          const isPopupIssue =
+            code === 'auth/popup-blocked' ||
+            code === 'auth/popup-closed-by-user' ||
+            code === 'auth/cancelled-popup-request'
+
+          // iOS Chrome/Safari often fails redirect due storage partition/session issues.
+          // Prefer explicit guidance instead of forcing a redirect loop.
+          if (isIOSBrowser() && isPopupIssue) {
+            throw new Error('모바일 브라우저 팝업이 차단되었습니다. 주소창 메뉴에서 팝업 차단 해제 후 다시 시도해주세요.')
+          }
+
+          if (isMobileBrowser() && isPopupIssue) {
             await signInWithRedirect(auth, googleProvider)
             return
           }
+
           throw error
         }
       },

@@ -112,6 +112,28 @@ function getStatus(applied, needed, waitlist = 0) {
   return "waiting";
 }
 
+function formatAppliedAt(value) {
+  if (!value) return "-";
+  let dateObj = null;
+  if (typeof value?.toDate === "function") {
+    dateObj = value.toDate();
+  } else if (typeof value?.seconds === "number") {
+    dateObj = new Date(value.seconds * 1000);
+  } else {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) dateObj = parsed;
+  }
+  if (!dateObj) return "-";
+  return dateObj.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 // ─── Login ───────────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -735,7 +757,7 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ background: t.bg, borderBottom: `1px solid ${t.border}` }}>
-                        {["학교명", "이름", "전화번호"].map((h) => (
+                        {["학교명", "이름", "전화번호", "이메일", "지원시각"].map((h) => (
                           <th key={h} style={{ padding: "10px 12px", fontSize: 12, color: t.text3, textAlign: "left", fontWeight: 550 }}>{h}</th>
                         ))}
                       </tr>
@@ -746,6 +768,8 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
                           <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{row.school || "-"}</td>
                           <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{row.name || "-"}</td>
                           <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{row.phone || "-"}</td>
+                          <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{row.email || row.teacherEmail || "-"}</td>
+                          <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{formatAppliedAt(row.createdAt)}</td>
                         </tr>
                       ))}
                     </tbody>

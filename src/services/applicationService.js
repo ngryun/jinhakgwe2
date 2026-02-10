@@ -68,12 +68,25 @@ export async function listApplicationsBySchedule(scheduleId) {
         ...app,
         school: profile?.school || '',
         phone: profile?.phone || '',
+        email: profile?.email || app.teacherEmail || '',
         name: profile?.name || app.teacherName || app.teacherEmail || app.teacherUid,
       }
     }),
   )
 
-  return withProfile
+  return withProfile.sort((a, b) => {
+    const toEpoch = (value) => {
+      if (!value) return 0
+      if (typeof value?.toDate === 'function') return value.toDate().getTime()
+      if (typeof value === 'string' || value instanceof Date) {
+        const parsed = new Date(value).getTime()
+        return Number.isNaN(parsed) ? 0 : parsed
+      }
+      if (typeof value?.seconds === 'number') return value.seconds * 1000
+      return 0
+    }
+    return toEpoch(b.createdAt) - toEpoch(a.createdAt)
+  })
 }
 
 export async function applyToSchedule({ scheduleId, teacherUid, teacherEmail, teacherName }) {
