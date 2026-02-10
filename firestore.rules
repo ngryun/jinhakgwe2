@@ -58,6 +58,11 @@ service cloud.firestore {
             || request.resource.data.applied == resource.data.applied - 1
           )
         );
+
+      match /students/{studentId} {
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAdmin();
+      }
     }
 
     match /applications/{applicationId} {

@@ -3,6 +3,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { applyToSchedule, cancelApplication, listAppliedSchedulesByTeacher, listApplicationsBySchedule } from "../../services/applicationService";
 import { createSchedule, deleteSchedule, listSchedules, updateSchedule } from "../../services/scheduleService";
 import { getUserProfile, listUsers, updateMyProfile, updateUserRole } from "../../services/userService";
+import { listStudentsBySchedule, addStudent, addStudentsBatch, deleteStudent, downloadStudentTemplate, parseStudentExcel, exportStudentsToExcel, getStudentCountsBySchedules } from "../../services/studentService";
 
 /*
   Design direction: Claude-inspired — warm, minimal, restrained.
@@ -38,6 +39,8 @@ const I = {
   grid: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>,
   file: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
   search: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  upload: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+  download: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
 };
 
 // ─── Data ────────────────────────────────────────────────────────────────────
@@ -466,6 +469,9 @@ function Dashboard({ schedules }) {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {s.studentCount > 0 && (
+                <span style={{ fontSize: 12, color: t.accent, fontWeight: 500 }}>학생 {s.studentCount}명</span>
+              )}
               <span style={{ fontSize: 13, color: t.text3 }}>{s.applied}/{formatCapacity(s.needed, s.waitlist)}</span>
               <Badge type={getStatus(s.applied, s.needed, s.waitlist)} />
             </div>
@@ -477,7 +483,7 @@ function Dashboard({ schedules }) {
 }
 
 // ─── Admin: Schedules ────────────────────────────────────────────────────────
-function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedule, onViewApplicants }) {
+function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedule, onViewApplicants, onRefreshStudentCount }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ school: "", region: "", date: "", time: "", needed: 2, waitlist: 0 });
@@ -488,6 +494,16 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
     loading: false,
     error: "",
   });
+  const [studentDialog, setStudentDialog] = useState({
+    open: false,
+    schedule: null,
+    students: [],
+    loading: false,
+    error: "",
+  });
+  const [studentForm, setStudentForm] = useState({ grade: "", classNum: "", number: "", name: "", gender: "남", notes: "" });
+  const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const handleSubmit = async () => {
     if (!form.school || !form.date || !form.time) return;
@@ -563,6 +579,63 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
     }
   };
 
+  const handleOpenStudents = async (schedule) => {
+    setStudentDialog({ open: true, schedule, students: [], loading: true, error: "" });
+    setStudentForm({ grade: "", classNum: "", number: "", name: "", gender: "남", notes: "" });
+    setUploadError("");
+    try {
+      const students = await listStudentsBySchedule(schedule.id);
+      setStudentDialog({ open: true, schedule, students, loading: false, error: "" });
+    } catch (e) {
+      setStudentDialog({ open: true, schedule, students: [], loading: false, error: e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다." });
+    }
+  };
+
+  const refreshStudents = async (scheduleId) => {
+    const students = await listStudentsBySchedule(scheduleId);
+    setStudentDialog((prev) => ({ ...prev, students }));
+    if (onRefreshStudentCount) onRefreshStudentCount(scheduleId, students.length);
+  };
+
+  const handleAddStudent = async () => {
+    if (!studentForm.name || !studentDialog.schedule) return;
+    try {
+      await addStudent(studentDialog.schedule.id, studentForm);
+      setStudentForm({ grade: "", classNum: "", number: "", name: "", gender: "남", notes: "" });
+      await refreshStudents(studentDialog.schedule.id);
+    } catch (e) {
+      setStudentDialog((prev) => ({ ...prev, error: e instanceof Error ? e.message : "학생 등록에 실패했습니다." }));
+    }
+  };
+
+  const handleDeleteStudent = async (studentId) => {
+    if (!studentDialog.schedule) return;
+    try {
+      await deleteStudent(studentDialog.schedule.id, studentId);
+      await refreshStudents(studentDialog.schedule.id);
+    } catch (e) {
+      setStudentDialog((prev) => ({ ...prev, error: e instanceof Error ? e.message : "학생 삭제에 실패했습니다." }));
+    }
+  };
+
+  const handleExcelUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !studentDialog.schedule) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      const parsed = await parseStudentExcel(file);
+      if (parsed.length === 0) { setUploadError("유효한 학생 데이터가 없습니다."); return; }
+      await addStudentsBatch(studentDialog.schedule.id, parsed);
+      await refreshStudents(studentDialog.schedule.id);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "엑셀 업로드에 실패했습니다.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
@@ -630,7 +703,7 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${t.border}` }}>
-              {["학교", "지역", "날짜", "시간", "현황", "상태", ""].map(h => (
+              {["학교", "지역", "날짜", "시간", "학생", "현황", "상태", ""].map(h => (
                 <th key={h} style={{ padding: "10px 16px", fontSize: 12, fontWeight: 500, color: t.text3, textAlign: "left", background: t.bg }}>{h}</th>
               ))}
             </tr>
@@ -646,6 +719,7 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
                 <td style={{ padding: "11px 16px", fontSize: 13, color: t.text2 }}>{s.region}</td>
                 <td style={{ padding: "11px 16px", fontSize: 13, color: t.text2 }}>{s.date}</td>
                 <td style={{ padding: "11px 16px", fontSize: 13, color: t.text2 }}>{s.time}</td>
+                <td style={{ padding: "11px 16px", fontSize: 13, color: s.studentCount > 0 ? t.accent : t.text3, fontWeight: s.studentCount > 0 ? 550 : 400 }}>{s.studentCount > 0 ? `${s.studentCount}명` : "-"}</td>
                 <td style={{ padding: "11px 16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {(() => {
@@ -669,6 +743,14 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
                 </td>
                 <td style={{ padding: "11px 16px" }}><Badge type={getStatus(s.applied, s.needed, s.waitlist)} /></td>
                 <td style={{ padding: "11px 16px", textAlign: "right" }}>
+                  <button onClick={() => handleOpenStudents(s)} style={{
+                    padding: "4px 6px", borderRadius: 6, background: "transparent",
+                    border: "none", cursor: "pointer", color: t.text3, transition: "color 0.15s",
+                    marginRight: 8,
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = t.text}
+                  onMouseOut={e => e.currentTarget.style.color = t.text3}
+                  >학생</button>
                   <button onClick={() => handleOpenApplicants(s)} style={{
                     padding: "4px 6px", borderRadius: 6, background: "transparent",
                     border: "none", cursor: "pointer", color: t.text3, transition: "color 0.15s",
@@ -791,6 +873,185 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
           </div>
         </div>
       )}
+
+      {/* ── Student Management Dialog ── */}
+      {studentDialog.open && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)",
+          zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}
+        onClick={() => setStudentDialog({ open: false, schedule: null, students: [], loading: false, error: "" })}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 900, maxHeight: "85vh",
+              borderRadius: 12, background: t.surface,
+              border: `1px solid ${t.border}`,
+              boxShadow: "0 18px 50px rgba(0,0,0,0.15)",
+              overflow: "hidden", display: "flex", flexDirection: "column",
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "14px 16px", borderBottom: `1px solid ${t.border}`, flexShrink: 0,
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 650, color: t.text }}>학생 관리</div>
+                <div style={{ fontSize: 12, color: t.text3, marginTop: 3 }}>
+                  {studentDialog.schedule?.school || "-"} · {studentDialog.schedule?.date || "-"} {studentDialog.schedule?.time || ""}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button onClick={() => downloadStudentTemplate()} style={{
+                  padding: "5px 10px", borderRadius: 6, border: `1px solid ${t.border}`,
+                  background: "transparent", color: t.text2, cursor: "pointer", fontSize: 12,
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>{I.download} 양식</button>
+
+                <label style={{
+                  padding: "5px 10px", borderRadius: 6, border: `1px solid ${t.border}`,
+                  background: "transparent", color: t.text2, cursor: "pointer", fontSize: 12,
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}>
+                  {I.upload} {uploading ? "업로드 중..." : "엑셀 업로드"}
+                  <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload}
+                    style={{ display: "none" }} disabled={uploading} />
+                </label>
+
+                {studentDialog.students.length > 0 && (
+                  <button onClick={() => exportStudentsToExcel(studentDialog.students, studentDialog.schedule?.school)}
+                    style={{
+                      padding: "5px 10px", borderRadius: 6, border: `1px solid ${t.border}`,
+                      background: "transparent", color: t.text2, cursor: "pointer", fontSize: 12,
+                      display: "flex", alignItems: "center", gap: 4,
+                    }}>{I.download} 내보내기</button>
+                )}
+
+                <button
+                  onClick={() => setStudentDialog({ open: false, schedule: null, students: [], loading: false, error: "" })}
+                  style={{
+                    padding: "4px 8px", borderRadius: 6, border: `1px solid ${t.border}`,
+                    background: "transparent", color: t.text2, cursor: "pointer", fontSize: 12,
+                  }}
+                >닫기</button>
+              </div>
+            </div>
+
+            {/* Add Student Form */}
+            <div style={{
+              padding: "12px 16px", borderBottom: `1px solid ${t.border}`,
+              background: t.bg, flexShrink: 0,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 10 }}>학생 추가</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                {[
+                  ["학년", "grade", "3"],
+                  ["반", "classNum", "2"],
+                  ["번호", "number", "15"],
+                  ["이름", "name", "홍길동"],
+                ].map(([label, key, ph]) => (
+                  <div key={key} style={{ flex: key === "name" ? "1 1 100px" : "0 0 70px" }}>
+                    <label style={{ display: "block", fontSize: 11, color: t.text3, marginBottom: 3 }}>{label}</label>
+                    <input value={studentForm[key]}
+                      onChange={(e) => setStudentForm({ ...studentForm, [key]: e.target.value })}
+                      placeholder={ph} style={inp}
+                      onFocus={(e) => e.target.style.borderColor = t.accent}
+                      onBlur={(e) => e.target.style.borderColor = t.border}
+                    />
+                  </div>
+                ))}
+                <div style={{ flex: "0 0 70px" }}>
+                  <label style={{ display: "block", fontSize: 11, color: t.text3, marginBottom: 3 }}>성별</label>
+                  <select value={studentForm.gender}
+                    onChange={(e) => setStudentForm({ ...studentForm, gender: e.target.value })}
+                    style={{ ...inp, padding: "9px 8px" }}>
+                    <option value="남">남</option>
+                    <option value="여">여</option>
+                  </select>
+                </div>
+                <div style={{ flex: "1 1 120px" }}>
+                  <label style={{ display: "block", fontSize: 11, color: t.text3, marginBottom: 3 }}>참고사항</label>
+                  <input value={studentForm.notes}
+                    onChange={(e) => setStudentForm({ ...studentForm, notes: e.target.value })}
+                    style={inp}
+                    onFocus={(e) => e.target.style.borderColor = t.accent}
+                    onBlur={(e) => e.target.style.borderColor = t.border}
+                  />
+                </div>
+                <button onClick={handleAddStudent} style={{
+                  padding: "9px 14px", borderRadius: 8, background: t.accent,
+                  border: "none", cursor: "pointer", fontSize: 12, fontWeight: 550, color: "#fff",
+                  whiteSpace: "nowrap", flexShrink: 0,
+                }}>추가</button>
+              </div>
+              {uploadError && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#8b3124" }}>{uploadError}</div>
+              )}
+            </div>
+
+            {/* Student List */}
+            <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+              {studentDialog.loading && (
+                <div style={{ fontSize: 13, color: t.text3 }}>학생 정보를 불러오는 중...</div>
+              )}
+              {!studentDialog.loading && studentDialog.error && (
+                <div style={{ fontSize: 13, color: "#8b3124" }}>{studentDialog.error}</div>
+              )}
+              {!studentDialog.loading && !studentDialog.error && studentDialog.students.length === 0 && (
+                <div style={{ fontSize: 13, color: t.text3, textAlign: "center", padding: "24px 0" }}>
+                  등록된 학생이 없습니다. 위에서 직접 추가하거나 엑셀 파일을 업로드해주세요.
+                </div>
+              )}
+              {!studentDialog.loading && !studentDialog.error && studentDialog.students.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, color: t.text3, marginBottom: 8 }}>
+                    총 {studentDialog.students.length}명
+                  </div>
+                  <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${t.border}` }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ background: t.bg, borderBottom: `1px solid ${t.border}` }}>
+                          {["학년", "반", "번호", "이름", "성별", "참고사항", ""].map((h) => (
+                            <th key={h} style={{
+                              padding: "10px 12px", fontSize: 12, color: t.text3,
+                              textAlign: "left", fontWeight: 550,
+                            }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {studentDialog.students.map((st, idx) => (
+                          <tr key={st.id} style={{
+                            borderBottom: idx < studentDialog.students.length - 1 ? `1px solid ${t.border}` : "none",
+                          }}>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{st.grade}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{st.classNum}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{st.number}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 550, color: t.text }}>{st.name}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{st.gender}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{st.notes || "-"}</td>
+                            <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                              <button onClick={() => handleDeleteStudent(st.id)} style={{
+                                padding: "3px 6px", borderRadius: 6, background: "transparent",
+                                border: "none", cursor: "pointer", color: t.text3,
+                              }}
+                              onMouseOver={(e) => e.currentTarget.style.color = "#C53030"}
+                              onMouseOut={(e) => e.currentTarget.style.color = t.text3}
+                              >{I.trash}</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -862,6 +1123,7 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
   const [viewMode, setViewMode] = useState("list");
   const [isCompact, setIsCompact] = useState(() => window.innerWidth < 900);
   const [processingIds, setProcessingIds] = useState([]);
+  const [studentViewDialog, setStudentViewDialog] = useState({ open: false, schedule: null, students: [], loading: false, error: "" });
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -890,6 +1152,16 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
       await onCancel(s.id);
     } finally {
       setProcessingIds((prev) => prev.filter((id) => id !== s.id));
+    }
+  };
+
+  const handleViewStudents = async (schedule) => {
+    setStudentViewDialog({ open: true, schedule, students: [], loading: true, error: "" });
+    try {
+      const students = await listStudentsBySchedule(schedule.id);
+      setStudentViewDialog({ open: true, schedule, students, loading: false, error: "" });
+    } catch (e) {
+      setStudentViewDialog({ open: true, schedule, students: [], loading: false, error: e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다." });
     }
   };
 
@@ -982,6 +1254,16 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
         <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 13, color: t.text2 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>{I.calendar} {s.date}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>{I.clock} {s.time}</span>
+          {s.studentCount > 0 && (
+            <button onClick={(e) => { e.stopPropagation(); handleViewStudents(s); }} style={{
+              display: "flex", alignItems: "center", gap: 4,
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: 12, fontWeight: 550, color: t.accent, padding: 0,
+            }}
+            onMouseOver={(e) => e.currentTarget.style.textDecoration = "underline"}
+            onMouseOut={(e) => e.currentTarget.style.textDecoration = "none"}
+            >{I.users} 상담학생 {s.studentCount}명</button>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1185,6 +1467,84 @@ function ScheduleList({ schedules, myApps, onApply, onCancel }) {
           </div>
         </div>
       )}
+      {/* ── Student View Dialog (read-only for teachers) ── */}
+      {studentViewDialog.open && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)",
+          zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}
+        onClick={() => setStudentViewDialog({ open: false, schedule: null, students: [], loading: false, error: "" })}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 700, maxHeight: "80vh",
+              borderRadius: 12, background: t.surface,
+              border: `1px solid ${t.border}`,
+              boxShadow: "0 18px 50px rgba(0,0,0,0.15)",
+              overflow: "hidden", display: "flex", flexDirection: "column",
+            }}
+          >
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "14px 16px", borderBottom: `1px solid ${t.border}`, flexShrink: 0,
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 650, color: t.text }}>상담 대상 학생</div>
+                <div style={{ fontSize: 12, color: t.text3, marginTop: 3 }}>
+                  {studentViewDialog.schedule?.school || "-"} · {studentViewDialog.schedule?.date || "-"} {studentViewDialog.schedule?.time || ""}
+                </div>
+              </div>
+              <button
+                onClick={() => setStudentViewDialog({ open: false, schedule: null, students: [], loading: false, error: "" })}
+                style={{
+                  padding: "4px 8px", borderRadius: 6, border: `1px solid ${t.border}`,
+                  background: "transparent", color: t.text2, cursor: "pointer", fontSize: 12,
+                }}
+              >닫기</button>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+              {studentViewDialog.loading && (
+                <div style={{ fontSize: 13, color: t.text3 }}>학생 정보를 불러오는 중...</div>
+              )}
+              {!studentViewDialog.loading && studentViewDialog.error && (
+                <div style={{ fontSize: 13, color: "#8b3124" }}>{studentViewDialog.error}</div>
+              )}
+              {!studentViewDialog.loading && !studentViewDialog.error && studentViewDialog.students.length === 0 && (
+                <div style={{ fontSize: 13, color: t.text3, textAlign: "center", padding: "24px 0" }}>등록된 상담 학생이 없습니다.</div>
+              )}
+              {!studentViewDialog.loading && !studentViewDialog.error && studentViewDialog.students.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, color: t.text3, marginBottom: 8 }}>총 {studentViewDialog.students.length}명</div>
+                  <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${t.border}` }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ background: t.bg, borderBottom: `1px solid ${t.border}` }}>
+                          {["학년", "반", "번호", "이름", "성별", "참고사항"].map((h) => (
+                            <th key={h} style={{ padding: "10px 12px", fontSize: 12, color: t.text3, textAlign: "left", fontWeight: 550 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {studentViewDialog.students.map((st, idx) => (
+                          <tr key={st.id} style={{ borderBottom: idx < studentViewDialog.students.length - 1 ? `1px solid ${t.border}` : "none" }}>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{st.grade}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{st.classNum}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{st.number}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 550, color: t.text }}>{st.name}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{st.gender}</td>
+                            <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{st.notes || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1222,6 +1582,9 @@ function MyApps({ myApps, onCancel }) {
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{I.pin} {s.region}</span>
                   <span>{s.date}</span>
                   <span>{s.time}</span>
+                  {s.studentCount > 0 && (
+                    <span style={{ color: t.accent, fontWeight: 550 }}>학생 {s.studentCount}명</span>
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1379,8 +1742,13 @@ export default function App() {
       getUserProfile(authUser.uid),
     ]);
 
-    setSchedules(scheduleData);
-    setMyApps(myApplied.map((item) => item.schedule).filter(Boolean));
+    // Attach student counts to each schedule
+    const ids = scheduleData.map((s) => s.id);
+    const counts = ids.length > 0 ? await getStudentCountsBySchedules(ids) : {};
+    const schedulesWithCounts = scheduleData.map((s) => ({ ...s, studentCount: counts[s.id] || 0 }));
+
+    setSchedules(schedulesWithCounts);
+    setMyApps(myApplied.map((item) => item.schedule).filter(Boolean).map((s) => ({ ...s, studentCount: counts[s.id] || 0 })));
     setUsers(userRows);
     setProfile(myProfile);
   };
@@ -1690,6 +2058,9 @@ export default function App() {
                 onUpdateSchedule={handleUpdateSchedule}
                 onDeleteSchedule={handleDeleteSchedule}
                 onViewApplicants={handleViewApplicants}
+                onRefreshStudentCount={(scheduleId, count) => {
+                  setSchedules((prev) => prev.map((s) => s.id === scheduleId ? { ...s, studentCount: count } : s));
+                }}
               />
             )}
             {role === "admin" && tab === "teach" && (
