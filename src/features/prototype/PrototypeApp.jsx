@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
-import { applyToSchedule, cancelApplication, listAppliedSchedulesByTeacher } from "../../services/applicationService";
+import { applyToSchedule, cancelApplication, listAppliedSchedulesByTeacher, listApplicationsBySchedule } from "../../services/applicationService";
 import { createSchedule, deleteSchedule, listSchedules, updateSchedule } from "../../services/scheduleService";
 import { getUserProfile, listUsers, updateMyProfile, updateUserRole } from "../../services/userService";
 
@@ -444,10 +444,17 @@ function Dashboard({ schedules }) {
 }
 
 // ─── Admin: Schedules ────────────────────────────────────────────────────────
-function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedule }) {
+function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedule, onViewApplicants }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ school: "", region: "", date: "", time: "", needed: 2, waitlist: 0 });
+  const [applicantDialog, setApplicantDialog] = useState({
+    open: false,
+    schedule: null,
+    rows: [],
+    loading: false,
+    error: "",
+  });
 
   const handleSubmit = async () => {
     if (!form.school || !form.date || !form.time) return;
@@ -492,6 +499,35 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
     width: "100%", padding: "9px 12px", borderRadius: 8, background: "#fff",
     border: `1px solid ${t.border}`, color: t.text, fontSize: 13,
     outline: "none", fontFamily: t.font, transition: "border-color 0.15s",
+  };
+
+  const handleOpenApplicants = async (schedule) => {
+    setApplicantDialog({
+      open: true,
+      schedule,
+      rows: [],
+      loading: true,
+      error: "",
+    });
+
+    try {
+      const rows = await onViewApplicants(schedule.id);
+      setApplicantDialog({
+        open: true,
+        schedule,
+        rows,
+        loading: false,
+        error: "",
+      });
+    } catch (e) {
+      setApplicantDialog({
+        open: true,
+        schedule,
+        rows: [],
+        loading: false,
+        error: e instanceof Error ? e.message : "신청자 조회에 실패했습니다.",
+      });
+    }
   };
 
   return (
@@ -600,6 +636,14 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
                 </td>
                 <td style={{ padding: "11px 16px" }}><Badge type={getStatus(s.applied, s.needed, s.waitlist)} /></td>
                 <td style={{ padding: "11px 16px", textAlign: "right" }}>
+                  <button onClick={() => handleOpenApplicants(s)} style={{
+                    padding: "4px 6px", borderRadius: 6, background: "transparent",
+                    border: "none", cursor: "pointer", color: t.text3, transition: "color 0.15s",
+                    marginRight: 8,
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = t.text}
+                  onMouseOut={e => e.currentTarget.style.color = t.text3}
+                  >신청자</button>
                   <button onClick={() => handleEdit(s)} style={{
                     padding: "4px 6px", borderRadius: 6, background: "transparent",
                     border: "none", cursor: "pointer", color: t.text3, transition: "color 0.15s",
@@ -621,6 +665,97 @@ function Schedules({ schedules, onAddSchedule, onUpdateSchedule, onDeleteSchedul
           </tbody>
         </table>
       </div>
+
+      {applicantDialog.open && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.25)",
+          zIndex: 80,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+        }}
+        onClick={() => setApplicantDialog({ open: false, schedule: null, rows: [], loading: false, error: "" })}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 760,
+              borderRadius: 12,
+              background: t.surface,
+              border: `1px solid ${t.border}`,
+              boxShadow: "0 18px 50px rgba(0,0,0,0.15)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "14px 16px",
+              borderBottom: `1px solid ${t.border}`,
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 650, color: t.text }}>신청자 목록</div>
+                <div style={{ fontSize: 12, color: t.text3, marginTop: 3 }}>
+                  {applicantDialog.schedule?.school || "-"} · {applicantDialog.schedule?.date || "-"} {applicantDialog.schedule?.time || ""}
+                </div>
+              </div>
+              <button
+                onClick={() => setApplicantDialog({ open: false, schedule: null, rows: [], loading: false, error: "" })}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: `1px solid ${t.border}`,
+                  background: "transparent",
+                  color: t.text2,
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                닫기
+              </button>
+            </div>
+
+            <div style={{ padding: 16 }}>
+              {applicantDialog.loading && (
+                <div style={{ fontSize: 13, color: t.text3 }}>신청자 정보를 불러오는 중...</div>
+              )}
+              {!applicantDialog.loading && applicantDialog.error && (
+                <div style={{ fontSize: 13, color: "#8b3124" }}>{applicantDialog.error}</div>
+              )}
+              {!applicantDialog.loading && !applicantDialog.error && applicantDialog.rows.length === 0 && (
+                <div style={{ fontSize: 13, color: t.text3 }}>현재 신청자가 없습니다.</div>
+              )}
+              {!applicantDialog.loading && !applicantDialog.error && applicantDialog.rows.length > 0 && (
+                <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${t.border}` }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: t.bg, borderBottom: `1px solid ${t.border}` }}>
+                        {["학교명", "이름", "전화번호"].map((h) => (
+                          <th key={h} style={{ padding: "10px 12px", fontSize: 12, color: t.text3, textAlign: "left", fontWeight: 550 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {applicantDialog.rows.map((row, idx) => (
+                        <tr key={row.id} style={{ borderBottom: idx < applicantDialog.rows.length - 1 ? `1px solid ${t.border}` : "none" }}>
+                          <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{row.school || "-"}</td>
+                          <td style={{ padding: "10px 12px", fontSize: 13, color: t.text }}>{row.name || "-"}</td>
+                          <td style={{ padding: "10px 12px", fontSize: 13, color: t.text2 }}>{row.phone || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1088,6 +1223,7 @@ function ProfilePage({ user, onSave }) {
   const [form, setForm] = useState({
     school: user?.school || "",
     name: user?.name || "",
+    phone: user?.phone || "",
     subject: user?.subject || "",
   });
   const [saving, setSaving] = useState(false);
@@ -1096,9 +1232,10 @@ function ProfilePage({ user, onSave }) {
     setForm({
       school: user?.school || "",
       name: user?.name || "",
+      phone: user?.phone || "",
       subject: user?.subject || "",
     });
-  }, [user?.name, user?.school, user?.subject]);
+  }, [user?.name, user?.school, user?.phone, user?.subject]);
 
   const inp = {
     width: "100%", padding: "9px 12px", borderRadius: 8, background: "#fff",
@@ -1122,6 +1259,10 @@ function ProfilePage({ user, onSave }) {
           <div>
             <label style={{ display: "block", fontSize: 12, color: t.text3, marginBottom: 4 }}>과목</label>
             <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="예: 수학" style={inp} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, color: t.text3, marginBottom: 4 }}>전화번호</label>
+            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="예: 010-1234-5678" style={inp} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: 12, color: t.text3, marginBottom: 4 }}>역할</label>
@@ -1358,6 +1499,10 @@ export default function App() {
     }
   };
 
+  const handleViewApplicants = async (scheduleId) => {
+    return listApplicationsBySchedule(scheduleId);
+  };
+
   if (isLoading || dataLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: t.bg, color: t.text2, fontFamily: t.font }}>
@@ -1509,6 +1654,7 @@ export default function App() {
                 onAddSchedule={handleAddSchedule}
                 onUpdateSchedule={handleUpdateSchedule}
                 onDeleteSchedule={handleDeleteSchedule}
+                onViewApplicants={handleViewApplicants}
               />
             )}
             {role === "admin" && tab === "teach" && (

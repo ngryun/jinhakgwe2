@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore'
 import { db, isFirebaseEnabled } from '../lib/firebase'
 import { getScheduleById } from './scheduleService'
+import { getUserProfile } from './userService'
 
 const SCHEDULES = 'schedules'
 const APPLICATIONS = 'applications'
@@ -47,6 +48,32 @@ export async function listAppliedSchedulesByTeacher(teacherUid) {
   return applications
     .map((app, index) => ({ ...app, schedule: schedules[index] }))
     .filter((item) => !!item.schedule)
+}
+
+export async function listApplicationsBySchedule(scheduleId) {
+  let applications = []
+
+  if (!isFirebaseEnabled()) {
+    applications = localApplications.filter((item) => item.scheduleId === scheduleId)
+  } else {
+    const appsRef = collection(db, APPLICATIONS)
+    const snapshot = await getDocs(query(appsRef, where('scheduleId', '==', scheduleId)))
+    applications = snapshot.docs.map((row) => normalizeApplication(row.id, row.data()))
+  }
+
+  const withProfile = await Promise.all(
+    applications.map(async (app) => {
+      const profile = await getUserProfile(app.teacherUid)
+      return {
+        ...app,
+        school: profile?.school || '',
+        phone: profile?.phone || '',
+        name: profile?.name || app.teacherName || app.teacherEmail || app.teacherUid,
+      }
+    }),
+  )
+
+  return withProfile
 }
 
 export async function applyToSchedule({ scheduleId, teacherUid, teacherEmail, teacherName }) {

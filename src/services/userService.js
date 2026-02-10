@@ -10,6 +10,7 @@ export async function upsertUserProfile(profile) {
     email: profile.email || '',
     name: profile.name || '',
     school: profile.school || '',
+    phone: profile.phone || '',
     subject: profile.subject || '',
     role: profile.role || 'teacher',
   }
@@ -58,6 +59,7 @@ export async function getUserProfile(uid) {
     email: data.email || '',
     name: data.name || '',
     school: data.school || '',
+    phone: data.phone || '',
     subject: data.subject || '',
     role: data.role || 'teacher',
   }
@@ -77,6 +79,7 @@ export async function listUsers() {
       email: data.email || '',
       name: data.name || '',
       school: data.school || '',
+      phone: data.phone || '',
       subject: data.subject || '',
       role: data.role || 'teacher',
     }
@@ -105,6 +108,7 @@ export async function updateMyProfile(uid, profile) {
   const patch = {
     name: profile.name || '',
     school: profile.school || '',
+    phone: profile.phone || '',
     subject: profile.subject || '',
   }
 
